@@ -28,17 +28,26 @@ export function buildSession(lists, { size = 10, practice = false } = {}) {
   return shuffle([...due.slice(0, size), ...fresh.slice(0, Math.max(0, size - due.length))]);
 }
 
-export function grade(word, correct) {
+// Mit Multiple-Choice steigt ein Wort höchstens bis hierhin. „Gut gelernt“ (ab Fach 3) gibt es nur durch Eintippen.
+export const CHOICE_MAX_BOX = 2;
+export const SOLID_BOX = 3;
+
+export function grade(word, correct, { maxBox = MAX_BOX } = {}) {
   word.seen = true;
   if (correct) {
     word.right++;
-    word.box = Math.min(word.box + 1, MAX_BOX);
+    if (word.box < maxBox) word.box++;
     word.due = startOfDay() + INTERVALS[word.box] * DAY;
   } else {
     word.wrong++;
     word.box = 0;
     word.due = Date.now();
   }
+}
+
+// Beim Durchgehen: „Wusste ich nicht“ macht das Wort sofort fällig, das Fach bleibt.
+export function markUnsure(word) {
+  if (word.seen) word.due = Math.min(word.due, Date.now());
 }
 
 // ---------- Antwortprüfung ----------
@@ -86,7 +95,7 @@ export function checkAnswer(input, expected, lang) {
 }
 
 // ---------- Punkte, Level, Serie ----------
-export const XP = { right: 10, retry: 3, finish: 20, perfect: 20 };
+export const XP = { type: 10, choice: 5, retry: 3, finish: 20, perfect: 20, review: 1 };
 
 // Für Level L braucht man insgesamt 50·L·(L−1) Punkte.
 export const levelOf = xp => Math.floor((1 + Math.sqrt(1 + xp / 12.5)) / 2);
@@ -111,15 +120,15 @@ export const BADGES = {
   streak3:  { icon: '🔥', name: '3 Tage',       text: '3 Tage hintereinander gelernt' },
   streak7:  { icon: '🌟', name: '7 Tage',       text: 'Eine ganze Woche am Stück' },
   streak30: { icon: '🏆', name: '30 Tage',      text: 'Einen Monat lang jeden Tag' },
-  words50:  { icon: '🧠', name: '50 sitzen',    text: '50 Wörter im Fach 3 oder höher' },
-  words200: { icon: '📚', name: '200 sitzen',   text: '200 Wörter im Fach 3 oder höher' },
+  words50:  { icon: '🧠', name: '50 gelernt',   text: '50 Wörter gut gelernt (Fach 3 oder höher)' },
+  words200: { icon: '📚', name: '200 gelernt',  text: '200 Wörter gut gelernt (Fach 3 oder höher)' },
   scanner:  { icon: '📷', name: 'Fotograf',     text: 'Vokabeln per Foto importiert' },
   level5:   { icon: '🚀', name: 'Level 5',      text: 'Level 5 erreicht' },
   level10:  { icon: '👑', name: 'Level 10',     text: 'Level 10 erreicht' },
 };
 
 export function earnedBadges(profile, lists, { perfect = false } = {}) {
-  const solid = lists.reduce((n, l) => n + l.words.filter(w => w.box >= 3).length, 0);
+  const solid = lists.reduce((n, l) => n + l.words.filter(w => w.box >= SOLID_BOX).length, 0);
   const s = currentStreak(profile), L = levelOf(profile.xp);
   const checks = {
     first: profile.sessions >= 1, perfect, streak3: s >= 3, streak7: s >= 7, streak30: s >= 30,

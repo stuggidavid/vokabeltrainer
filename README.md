@@ -4,9 +4,13 @@ Eine Web-App für iPad und iPhone zum Vokabellernen (Englisch und Französisch).
 
 ## Funktionen
 
-- **Profile** für jedes Kind, mit eigenem Lernstand, Punkten, Level und Abzeichen
-- **Karteikasten** mit 6 Fächern: Richtige Wörter wandern ein Fach weiter und kommen erst nach 1, 2, 4, 8 bzw. 16 Tagen wieder dran. Falsche Wörter gehen zurück in Fach 0 und werden in derselben Runde noch einmal abgefragt.
-- **Abfrage-Arten:** Bei „Automatisch“ werden neue Wörter per Auswahl abgefragt, gut gelernte zum Eintippen. Die Richtung ist einstellbar.
+- **Profile** für jedes Kind, mit eigenem Lernstand, Punkten, Level und Abzeichen. Name und Bild ändern die Kinder selbst über ✏️.
+- **Karteikasten** mit 6 Fächern: Richtige Wörter wandern ein Fach weiter und kommen erst nach 1, 2, 4, 8 bzw. 16 Tagen wieder dran. Falsche Wörter gehen zurück in Fach 0 und werden in derselben Runde noch einmal abgefragt. Ab Fach 3 gilt ein Wort als „gut gelernt“.
+- **Vor jeder Runde** wählt man Richtung, Abfrage-Art und Rundengröße (5/10/20). Die letzte Wahl ist voreingestellt.
+  - **Automatisch:** neue Wörter per Multiple-Choice, ab Fach 2 zum Eintippen
+  - **Multiple-Choice:** bringt Wörter höchstens bis Fach 2 (5 Punkte)
+  - **Eintippen:** bringt Wörter bis Fach 5 (10 Punkte), nur so werden sie „gut gelernt“
+- **🃏 Schnell durchgehen:** Karteikarten aus frei wählbaren Listen umdrehen und selbst bewerten. Wörter steigen dadurch nicht auf. „Wusste ich nicht“ macht ein Wort sofort fällig, und am Ende lassen sich die unsicheren Wörter direkt üben (1 Punkt pro Wort).
 - **Nachsichtige Prüfung:** Groß-/Kleinschreibung, „to“ und deutsche Artikel sind egal. Fehlende französische Akzente oder Artikel zählen als richtig, die App zeigt aber einen Hinweis. Mehrere Bedeutungen („sich erinnern, behalten“) werden alle akzeptiert.
 - **Vorlesen** der Fremdwörter (Sprachausgabe des Geräts)
 - **Foto-Import:** Die App liest Vokabelseiten aus dem Schulbuch mit der Claude API aus. Das Ergebnis lässt sich vor dem Speichern prüfen und korrigieren.

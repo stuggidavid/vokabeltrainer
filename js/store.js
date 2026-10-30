@@ -14,6 +14,7 @@ export function load() {
   } catch (e) {
     console.error('Laden fehlgeschlagen', e);
   }
+  state.profiles.forEach(migrateProfile);
   // Bittet den Browser, die Daten nicht automatisch zu löschen.
   try { navigator.storage?.persist?.(); } catch {}
   return state;
@@ -36,11 +37,23 @@ export function newWord(fx, de, note = '') {
   return { id: uid(), fx: fx.trim(), de: de.trim(), note: note.trim(), box: 0, due: 0, seen: false, right: 0, wrong: 0 };
 }
 
+const defaultPrefs = () => ({ direction: 'mix', mode: 'auto', size: 10, reviewDirection: 'mix', reviewListIds: [] });
+
 export function newProfile(name, avatar) {
   return {
-    id: uid(), name: name.trim(), avatar, mode: 'auto', direction: 'mix',
+    id: uid(), name: name.trim(), avatar, prefs: defaultPrefs(),
     xp: 0, streak: { count: 0, lastDay: '' }, badges: [], sessions: 0, createdAt: Date.now(),
   };
+}
+
+// Ältere Profile hatten mode/direction direkt am Profil – in die Rundeneinstellungen übernehmen.
+function migrateProfile(p) {
+  if (!p.prefs) {
+    p.prefs = { ...defaultPrefs(), direction: p.direction || 'mix', mode: p.mode || 'auto' };
+    delete p.mode;
+    delete p.direction;
+  }
+  p.prefs = { ...defaultPrefs(), ...p.prefs };
 }
 
 export function newList(profileId, name, lang) {
@@ -69,5 +82,6 @@ export function importJSON(text) {
   const apiKey = state.settings.apiKey;
   Object.assign(state, defaults(), data);
   state.settings = { ...state.settings, apiKey };
+  state.profiles.forEach(migrateProfile);
   save();
 }

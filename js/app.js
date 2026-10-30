@@ -4,24 +4,33 @@ import * as SRS from './srs.js';
 import { prepareImage, extractVocab, testKey } from './scan.js';
 
 const $app = document.getElementById('app');
-const AVATARS = ['🦊', '🐼', '🐯', '🐸', '🦄', '🐙', '🦁', '🐨', '🐧', '🐬', '🦖', '🐝', '🚀', '⚽', '🎸', '🌈'];
+const AVATARS = ['🐱', '🐶', '🐰', '🐴', '🦊', '🐼', '🐯', '🐸', '🦄', '🐙', '🦁', '🐨', '🐧', '🐬', '🦖', '🐝', '🚀', '⚽', '🎸', '🌈'];
 const LANGS = {
   en: { flag: '🇬🇧', name: 'Englisch', voice: 'en-GB' },
   fr: { flag: '🇫🇷', name: 'Französisch', voice: 'fr-FR' },
   de: { flag: '🇩🇪', name: 'Deutsch', voice: 'de-DE' },
 };
-const MODES = { auto: 'Automatisch (empfohlen)', choice: 'Immer Auswahl', type: 'Immer eintippen' };
-const DIRECTIONS = { mix: 'Gemischt', fx2de: 'Fremdsprache → Deutsch', de2fx: 'Deutsch → Fremdsprache' };
+const MODES = { auto: 'Automatisch', choice: 'Multiple-Choice', type: 'Eintippen' };
+const MODE_HINTS = {
+  auto: 'Neue Wörter mit Multiple-Choice, bekannte Wörter zum Eintippen.',
+  choice: 'Mit Multiple-Choice kommen Wörter höchstens bis Fach 2. Damit sie als „gut gelernt“ zählen, musst du sie eintippen.',
+  type: 'Du schreibst jedes Wort selbst – so wie im Vokabeltest.',
+};
+const DIRECTIONS = { fx2de: 'Fremdsprache → Deutsch', de2fx: 'Deutsch → Fremdsprache', mix: 'Gemischt' };
+const SIZES = { 5: '5', 10: '10', 20: '20' };
 const BOX_COLORS = ['var(--box0)', 'var(--box1)', 'var(--box2)', 'var(--box3)', 'var(--box4)', 'var(--box5)'];
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let view = { name: 'profiles' };
 let session = null;
+let review = null;
+let modal = null;
 let parentUnlocked = false;
 
 function go(name, params = {}) {
   view = { name, ...params };
+  modal = null;
   render();
   window.scrollTo(0, 0);
 }
@@ -29,9 +38,27 @@ function go(name, params = {}) {
 function render() {
   if (view.name !== 'profiles' && view.name !== 'parent-gate' && view.name !== 'parent'
       && view.name !== 'profile-edit' && !S.activeProfile()) view = { name: 'profiles' };
-  $app.innerHTML = VIEWS[view.name]();
+  $app.innerHTML = VIEWS[view.name]() + (modal ? MODALS[modal.type]() : '');
+  document.body.classList.toggle('modal-open', !!modal);
   AFTER[view.name]?.();
 }
+
+function openModal(m) { modal = m; render(); }
+function closeModal() { modal = null; render(); }
+
+const validWords = list => list.words.filter(w => w.fx && w.de);
+
+// Knopfleiste zum Auswählen einer Rundeneinstellung (wird direkt im Profil gemerkt).
+const seg = (key, options, current) => `<div class="seg">${Object.entries(options).map(([v, t]) =>
+  `<button class="${v === String(current) ? 'sel' : ''}" data-action="set-pref" data-k="${key}" data-v="${v}">${t}</button>`).join('')}</div>`;
+
+const modalShell = (title, body) => `
+  <div class="modal-backdrop" data-action="backdrop">
+    <div class="modal" role="dialog" aria-label="${esc(title)}">
+      <div class="modal-head"><h2>${title}</h2><button class="icon-btn small" data-action="close-modal" aria-label="Schließen">✕</button></div>
+      ${body}
+    </div>
+  </div>`;
 
 // ---------- kleine Helfer ----------
 function toast(text) {
@@ -144,9 +171,6 @@ const VIEWS = {
         <div class="avatar-grid">
           ${AVATARS.map(a => `<button type="button" class="avatar-choice ${a === avatar ? 'sel' : ''}" data-action="pick-avatar" data-a="${a}">${a}</button>`).join('')}
         </div>
-        <label>Abfrage-Art<select name="mode">${Object.entries(MODES).map(([k, t]) => `<option value="${k}" ${k === (p?.mode || 'auto') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <p class="small">Automatisch: neue Wörter mit Auswahl-Antworten, gut gelernte Wörter zum Eintippen.</p>
-        <label>Richtung<select name="direction">${Object.entries(DIRECTIONS).map(([k, t]) => `<option value="${k}" ${k === (p?.direction || 'mix') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <button class="btn primary big" type="submit">Speichern</button>
       </form>`;
   },
@@ -159,20 +183,23 @@ const VIEWS = {
     const streak = SRS.currentStreak(p);
     const todo = st.due + st.fresh;
     const lists = st.lists.slice().sort((a, b) => b.createdAt - a.createdAt).map(l => {
-      const valid = l.words.filter(w => w.fx && w.de);
+      const valid = validWords(l);
       return `
       <div class="list-card">
         <button class="list-main" data-action="edit-list" data-id="${l.id}">
           <span class="flag">${LANGS[l.lang]?.flag || '🏳️'}</span>
-          <span class="list-info"><b>${esc(l.name)}</b><small>${valid.length} Wörter · ${valid.filter(w => w.box >= 3).length} sitzen</small>${boxBar(l.words)}</span>
+          <span class="list-info"><b>${esc(l.name)}</b><small>${valid.length} Wörter · ${valid.filter(w => w.box >= SRS.SOLID_BOX).length} gut gelernt</small>${boxBar(l.words)}</span>
         </button>
-        <button class="btn small" data-action="learn-list" data-id="${l.id}" ${valid.length ? '' : 'disabled'}>Lernen</button>
+        <div class="list-actions">
+          <button class="btn small" data-action="learn-list" data-id="${l.id}" ${valid.length ? '' : 'disabled'}>Lernen</button>
+          <button class="btn small" data-action="review-list" data-id="${l.id}" ${valid.length ? '' : 'disabled'} aria-label="Durchgehen">🃏</button>
+        </div>
       </div>`;
     }).join('');
     return `
       <header class="top">
         <button class="icon-btn avatar-btn" data-action="switch-profile" aria-label="Profil wechseln">${p.avatar}</button>
-        <div class="who"><b>${esc(p.name)}</b><small>Level ${L} · ${p.xp} Punkte</small><div class="xpbar"><span style="width:${pct}%"></span></div></div>
+        <div class="who"><b>${esc(p.name)} <button class="edit-name" data-action="edit-own-profile" aria-label="Profil bearbeiten">✏️</button></b><small>Level ${L} · ${p.xp} Punkte</small><div class="xpbar"><span style="width:${pct}%"></span></div></div>
         <div class="streak ${streak ? 'on' : ''}" title="Tage am Stück">🔥 ${streak}</div>
       </header>
 
@@ -180,12 +207,12 @@ const VIEWS = {
         ${st.total === 0
           ? `<h2>Noch keine Vokabeln</h2><p>Fotografiere eine Vokabelseite aus deinem Schulbuch oder lege eine Liste an.</p>
              <button class="btn primary big" data-action="scan">📷 Vokabeln fotografieren</button>`
-          : todo > 0
-            ? `<h2>Heute dran: ${todo} ${todo === 1 ? 'Wort' : 'Wörter'}</h2>
-               <p>${st.due} zum Wiederholen · ${st.fresh} neu</p>
-               <button class="btn primary big" data-action="learn-all">Los geht's! 🚀</button>`
-            : `<h2>Alles erledigt für heute! 🎉</h2><p>Du kannst trotzdem frei üben.</p>
-               <button class="btn primary big" data-action="practice-all">Freies Üben</button>`}
+          : `${todo > 0
+              ? `<h2>Heute dran: ${todo} ${todo === 1 ? 'Wort' : 'Wörter'}</h2><p>${st.due} zum Wiederholen · ${st.fresh} neu</p>
+                 <button class="btn primary big" data-action="learn-all">Los geht's! 🚀</button>`
+              : `<h2>Alles erledigt für heute! 🎉</h2><p>Du kannst trotzdem frei üben.</p>
+                 <button class="btn primary big" data-action="learn-all">Freies Üben</button>`}
+             <button class="btn hero-2" data-action="review-pick">🃏 Schnell durchgehen</button>`}
       </section>
 
       <div class="section-head">
@@ -201,7 +228,7 @@ const VIEWS = {
       <div class="badges">
         ${Object.entries(SRS.BADGES).map(([k, b]) => `<div class="badge ${p.badges.includes(k) ? 'got' : ''}" title="${esc(b.text)}"><span>${b.icon}</span><small>${b.name}</small></div>`).join('')}
       </div>
-      <p class="legend">Karteikasten: ${BOX_COLORS.map((c, i) => `<span><i style="background:${c}"></i>${i}</span>`).join('')}<span><i style="background:var(--unseen)"></i>neu</span></p>`;
+      <button class="legend" data-action="info">Karteikasten: ${BOX_COLORS.map((c, i) => `<span><i style="background:${c}"></i>${i}</span>`).join('')}<span><i style="background:var(--unseen)"></i>neu</span><span>ℹ️ Wie funktioniert das?</span></button>`;
   },
 
   'list-edit'() {
@@ -231,6 +258,7 @@ const VIEWS = {
       </div>
       <div class="words">${rows || '<p class="small center">Noch keine Wörter. Tippe auf „＋ Wort“ oder fotografiere die Vokabeln.</p>'}</div>
       ${l.words.length > 5 ? '<button class="btn wide" data-action="add-word">＋ Wort</button>' : ''}
+      ${validWords(l).length ? `<button class="btn wide" data-action="review-list" data-id="${l.id}">🃏 Schnell durchgehen</button>` : ''}
       <button class="btn danger-outline wide" data-action="delete-list">Liste löschen</button>`;
   },
 
@@ -367,6 +395,56 @@ const VIEWS = {
       </section>`;
   },
 
+  review() {
+    const it = review.items[review.idx];
+    const total = review.items.length;
+    const prompt = it.dir === 'fx2de' ? it.word.fx : it.word.de;
+    const promptLang = it.dir === 'fx2de' ? it.list.lang : 'de';
+    const back = it.dir === 'fx2de' ? it.word.de : it.word.fx;
+    const backLang = it.dir === 'fx2de' ? 'de' : it.list.lang;
+    const speakBtn = (text, lang) => lang !== 'de'
+      ? `<button class="icon-btn small" data-action="speak" data-text="${esc(text)}" data-lang="${lang}" aria-label="Vorlesen">🔊</button>` : '';
+    return `
+      <header class="top train-top">
+        <button class="icon-btn" data-action="quit-review" aria-label="Beenden">✕</button>
+        <div class="progress"><span style="width:${Math.round(100 * review.idx / total)}%"></span></div>
+        <span class="count">${review.idx + 1}/${total}</span>
+      </header>
+      <section class="card quiz flashcard">
+        <div class="q-head"><span class="flag">${LANGS[it.list.lang]?.flag || ''}</span><span class="small">Weißt du es?</span></div>
+        <div class="prompt">${esc(prompt)} ${speakBtn(prompt, promptLang)}</div>
+        ${review.flipped
+          ? `<div class="flip-answer">${esc(back)} ${speakBtn(back, backLang)}</div>
+             ${it.word.note ? `<p class="small">ℹ️ ${esc(it.word.note)}</p>` : ''}
+             <div class="row stretch self-grade">
+               <button class="btn big bad" data-action="review-answer" data-ok="0">✗ Wusste ich nicht</button>
+               <button class="btn big good" data-action="review-answer" data-ok="1" id="knew">✓ Wusste ich</button>
+             </div>`
+          : `<button class="btn primary big wide" data-action="flip" id="flip">Umdrehen</button>`}
+      </section>`;
+  },
+
+  'review-result'() {
+    const r = view;
+    const shown = r.unsure.slice(0, 12);
+    return `
+      <section class="card center result">
+        <div class="big-icon">🃏</div>
+        <h1>${r.known} von ${r.total} gewusst</h1>
+        <p class="xp-gain">+${r.xp} Punkte</p>
+        ${r.badges.length ? `<div class="new-badges"><h2>Neue Abzeichen</h2>${r.badges.map(k => `<div class="badge got big"><span>${SRS.BADGES[k].icon}</span><small>${SRS.BADGES[k].name}</small></div>`).join('')}</div>` : ''}
+        ${r.unsure.length ? `
+          <p>Diese Wörter sitzen noch nicht:</p>
+          <div class="chips">${shown.map(x => `<span>${esc(x.word.fx)}</span>`).join('')}${r.unsure.length > shown.length ? `<span>… +${r.unsure.length - shown.length}</span>` : ''}</div>
+          <button class="btn primary big wide" data-action="practice-unsure">Die ${r.unsure.length} unsicheren Wörter jetzt üben</button>`
+        : '<p>Alles gewusst – super! 🎉</p>'}
+        <div class="row stretch">
+          <button class="btn big" data-action="back-home">Fertig</button>
+          <button class="btn big" data-action="review-again">Nochmal durchgehen</button>
+        </div>
+      </section>`;
+  },
+
   'parent-gate'() {
     view.a ??= 6 + Math.floor(Math.random() * 4);
     view.b ??= 6 + Math.floor(Math.random() * 4);
@@ -422,24 +500,102 @@ const pickPraise = () => PRAISE[Math.floor(Math.random() * PRAISE.length)];
 
 const AFTER = {
   train() {
+    if (modal) return;
     if (session.answered) document.getElementById('next')?.focus();
     else document.getElementById('answer')?.focus();
+  },
+  review() {
+    if (modal) return;
+    document.getElementById(review.flipped ? 'knew' : 'flip')?.focus();
+  },
+};
+
+// ---------- Auswahlfenster ----------
+const MODALS = {
+  // Vor jeder Lernrunde: Richtung, Abfrage-Art, Rundengröße (letzte Wahl ist vorausgewählt).
+  learn() {
+    const pr = S.activeProfile().prefs;
+    const lists = modal.listIds.map(S.getList).filter(Boolean);
+    let info;
+    if (modal.words) {
+      info = `${modal.words.length} unsichere ${modal.words.length === 1 ? 'Wort' : 'Wörter'}`;
+    } else {
+      const words = lists.flatMap(validWords);
+      const due = words.filter(w => SRS.isDue(w)).length, fresh = words.filter(w => !w.seen).length;
+      info = due + fresh
+        ? `${due} zum Wiederholen · ${fresh} neu`
+        : 'Alles erledigt – das wird freies Üben (zählt nicht für den Karteikasten).';
+    }
+    const what = lists.length === 1 ? esc(lists[0].name) : `${lists.length} Listen`;
+    return modalShell('Neue Runde', `
+      <p class="small">${what} · ${info}</p>
+      <div class="label">Richtung</div>${seg('direction', DIRECTIONS, pr.direction)}
+      <div class="label">Abfrage</div>${seg('mode', MODES, pr.mode)}
+      <p class="small hint-text">${MODE_HINTS[pr.mode]}</p>
+      ${modal.words ? '' : `<div class="label">Wörter pro Runde</div>${seg('size', SIZES, pr.size)}`}
+      <button class="btn primary big wide" data-action="start-learn">Los geht's! 🚀</button>`);
+  },
+
+  // Vor dem Durchgehen: Listen und Richtung wählen.
+  review() {
+    const p = S.activeProfile();
+    const sel = new Set(modal.selected);
+    const lists = S.listsOf(p.id).filter(l => validWords(l).length).sort((a, b) => b.createdAt - a.createdAt);
+    const total = lists.filter(l => sel.has(l.id)).reduce((n, l) => n + validWords(l).length, 0);
+    return modalShell('🃏 Schnell durchgehen', `
+      <div class="pick-head"><div class="label">Listen</div>
+        <div class="row"><button class="btn small" data-action="review-all">Alle</button><button class="btn small" data-action="review-none">Keine</button></div>
+      </div>
+      <div class="pick-list">
+        ${lists.map(l => `
+          <button class="pick-row ${sel.has(l.id) ? 'sel' : ''}" data-action="toggle-review-list" data-id="${l.id}">
+            <span class="box-check">${sel.has(l.id) ? '✓' : ''}</span>
+            <span class="flag">${LANGS[l.lang]?.flag || ''}</span>
+            <span class="grow"><b>${esc(l.name)}</b><small>${validWords(l).length} Wörter</small></span>
+          </button>`).join('')}
+      </div>
+      <div class="label">Richtung</div>${seg('reviewDirection', DIRECTIONS, p.prefs.reviewDirection)}
+      <p class="small hint-text">Umdrehen und ehrlich sagen, ob du es wusstest. Unsichere Wörter kommen in der nächsten Lernrunde dran.</p>
+      <button class="btn primary big wide" data-action="start-review" ${total ? '' : 'disabled'}>${total} Wörter durchgehen</button>`);
+  },
+
+  info() {
+    const rows = SRS.INTERVALS.map((d, i) => `
+      <tr><td><i style="background:${BOX_COLORS[i]}"></i> Fach ${i}</td>
+      <td>${i === 0 ? 'neu oder falsch – kommt gleich wieder dran' : `wieder dran nach ${d} ${d === 1 ? 'Tag' : 'Tagen'}`}</td></tr>`).join('');
+    return modalShell('Der Karteikasten', `
+      <p>Jedes Wort wandert durch 6 Fächer:</p>
+      <ul class="info-list">
+        <li><b>Richtig</b> → ein Fach weiter. Es kommt erst nach ein paar Tagen wieder dran.</li>
+        <li><b>Falsch</b> → zurück in Fach 0. Es wird gleich nochmal geübt.</li>
+        <li>Ab <b>Fach 3</b> gilt ein Wort als <b>gut gelernt</b>.</li>
+        <li>Mit <b>Multiple-Choice</b> kommt ein Wort höchstens bis Fach 2. Für „gut gelernt“ musst du es <b>eintippen</b>.</li>
+      </ul>
+      <table class="info-table">${rows}</table>
+      <p class="small">So landen die Wörter im Langzeitgedächtnis. Freies Üben und Durchgehen schieben Wörter nicht weiter.</p>
+      <p class="small"><b>Punkte:</b> Eintippen 10 · Multiple-Choice 5 · Durchgehen 1 pro Wort · Runde geschafft +20</p>
+      <button class="btn primary big wide" data-action="close-modal">Alles klar</button>`);
   },
 };
 
 // ---------- Training ----------
-function startSession(lists, { practice = false } = {}) {
+// Entweder aus Listen (fällige + neue Wörter) oder mit fest vorgegebenen Wörtern (unsichere aus dem Durchgehen).
+function startSession(lists, { picked = null } = {}) {
   const p = S.activeProfile();
-  const valid = lists.map(l => ({ ...l, words: l.words.filter(w => w.fx && w.de) }));
-  let picked = SRS.buildSession(valid, { practice });
-  if (!picked.length) {
-    practice = true;
-    picked = SRS.buildSession(valid, { practice, size: 15 });
+  const pr = p.prefs;
+  const valid = lists.map(l => ({ ...l, words: validWords(l) }));
+  let practice = false;
+  if (!picked) {
+    picked = SRS.buildSession(valid, { size: pr.size });
+    if (!picked.length) {
+      practice = true;
+      picked = SRS.buildSession(valid, { practice, size: pr.size });
+    }
   }
   if (!picked.length) return toast('Hier gibt es noch keine Wörter.');
   const items = picked.map(({ word, list }) => {
-    const dir = p.direction === 'mix' ? (Math.random() < 0.5 ? 'fx2de' : 'de2fx') : p.direction;
-    let mode = p.mode === 'auto' ? (word.box >= 2 ? 'type' : 'choice') : p.mode;
+    const dir = pr.direction === 'mix' ? (Math.random() < 0.5 ? 'fx2de' : 'de2fx') : pr.direction;
+    let mode = pr.mode === 'auto' ? (word.box >= 2 ? 'type' : 'choice') : pr.mode;
     const answerOf = w => (dir === 'fx2de' ? w.de : w.fx);
     let choices;
     if (mode === 'choice') {
@@ -458,10 +614,10 @@ function startSession(lists, { practice = false } = {}) {
 function answer(ok, extra = {}) {
   const it = session.items[session.idx];
   if (!it.retry) {
-    if (!session.practice) SRS.grade(it.word, ok);
+    if (!session.practice) SRS.grade(it.word, ok, { maxBox: it.mode === 'type' ? SRS.MAX_BOX : SRS.CHOICE_MAX_BOX });
     if (ok) session.right++;
   }
-  if (ok) session.xp += it.retry ? SRS.XP.retry : SRS.XP.right;
+  if (ok) session.xp += it.retry ? SRS.XP.retry : it.mode === 'type' ? SRS.XP.type : SRS.XP.choice;
   else if (!it.retry) session.items.push({ ...it, retry: true, choices: it.choices && SRS.shuffle(it.choices) });
   session.answered = { ok, ...extra };
   save();
@@ -488,6 +644,41 @@ function finishSession() {
   if (session.right / session.firstCount >= 0.7 || badges.length) confetti();
 }
 
+// ---------- Durchgehen (Karteikarten) ----------
+function openReviewPicker(selected) {
+  const p = S.activeProfile();
+  const own = new Set(S.listsOf(p.id).filter(l => validWords(l).length).map(l => l.id));
+  let ids = (selected || p.prefs.reviewListIds).filter(id => own.has(id));
+  if (!ids.length) {
+    const newest = S.listsOf(p.id).filter(l => own.has(l.id)).sort((a, b) => b.createdAt - a.createdAt)[0];
+    ids = newest ? [newest.id] : [];
+  }
+  openModal({ type: 'review', selected: ids });
+}
+
+function startReview(listIds) {
+  const p = S.activeProfile();
+  const dirPref = p.prefs.reviewDirection;
+  const lists = listIds.map(S.getList).filter(Boolean);
+  const items = SRS.shuffle(lists.flatMap(list => validWords(list).map(word => ({
+    word, list, dir: dirPref === 'mix' ? (Math.random() < 0.5 ? 'fx2de' : 'de2fx') : dirPref,
+  }))));
+  if (!items.length) return toast('Keine Wörter ausgewählt.');
+  review = { items, idx: 0, flipped: false, known: 0, unsure: [], listIds };
+  go('review');
+}
+
+function finishReview() {
+  const p = S.activeProfile();
+  const xp = review.items.length * SRS.XP.review;
+  p.xp += xp;
+  SRS.touchStreak(p);
+  const badges = SRS.earnedBadges(p, S.listsOf(p.id));
+  save();
+  go('review-result', { known: review.known, total: review.items.length, unsure: review.unsure, xp, badges, listIds: review.listIds });
+  if (review.known / review.items.length >= 0.8) confetti();
+}
+
 // ---------- Aktionen ----------
 function cleanEmptyWords(list) {
   if (list) list.words = list.words.filter(w => w.fx.trim() || w.de.trim());
@@ -498,7 +689,8 @@ const ACTIONS = {
   'pick-profile': el => { state.activeProfileId = el.dataset.id; save(); go('home'); },
   'new-profile': () => go('profile-edit', { from: 'profiles' }),
   'edit-profile': el => go('profile-edit', { id: el.dataset.id, from: 'parent' }),
-  'back-from-profile-edit': () => go(view.from === 'parent' ? 'parent' : 'profiles'),
+  'edit-own-profile': () => go('profile-edit', { id: state.activeProfileId, from: 'home' }),
+  'back-from-profile-edit': () => go(view.from === 'parent' ? 'parent' : view.from === 'home' ? 'home' : 'profiles'),
   'pick-avatar': el => {
     view.avatar = el.dataset.a;
     document.querySelectorAll('.avatar-choice').forEach(b => b.classList.toggle('sel', b === el));
@@ -509,10 +701,70 @@ const ACTIONS = {
   'back-list': () => go('list-edit', { id: view.listId }),
   'open-parent': () => go(parentUnlocked ? 'parent' : 'parent-gate'),
 
-  'learn-all': () => startSession(S.listsOf(state.activeProfileId)),
-  'practice-all': () => startSession(S.listsOf(state.activeProfileId), { practice: true }),
-  'learn-list': el => { const l = S.getList(el.dataset.id); cleanEmptyWords(l); startSession([l]); },
-  again: () => startSession(view.listIds.map(S.getList).filter(Boolean)),
+  'learn-all': () => openModal({ type: 'learn', listIds: S.listsOf(state.activeProfileId).map(l => l.id) }),
+  'learn-list': el => { cleanEmptyWords(S.getList(el.dataset.id)); openModal({ type: 'learn', listIds: [el.dataset.id] }); },
+  again: () => openModal({ type: 'learn', listIds: view.listIds }),
+  'start-learn': () => {
+    const m = modal;
+    modal = null;
+    const lists = m.listIds.map(S.getList).filter(Boolean);
+    save();
+    if (m.words) startSession(lists, { picked: m.words });
+    else startSession(lists);
+  },
+  'set-pref': el => {
+    const k = el.dataset.k;
+    S.activeProfile().prefs[k] = k === 'size' ? +el.dataset.v : el.dataset.v;
+    render();
+  },
+  info: () => openModal({ type: 'info' }),
+  'close-modal': () => closeModal(),
+  backdrop: (el, e) => { if (e.target === el) closeModal(); },
+
+  'review-pick': () => openReviewPicker(),
+  'review-list': el => { cleanEmptyWords(S.getList(el.dataset.id)); openReviewPicker([el.dataset.id]); },
+  'review-again': () => openReviewPicker(view.listIds),
+  'toggle-review-list': el => {
+    const id = el.dataset.id;
+    modal.selected = modal.selected.includes(id) ? modal.selected.filter(x => x !== id) : [...modal.selected, id];
+    render();
+  },
+  'review-all': () => { modal.selected = S.listsOf(state.activeProfileId).map(l => l.id); render(); },
+  'review-none': () => { modal.selected = []; render(); },
+  'start-review': () => {
+    const p = S.activeProfile();
+    const ids = S.listsOf(p.id).map(l => l.id).filter(id => modal.selected.includes(id));
+    p.prefs.reviewListIds = ids;
+    save();
+    startReview(ids);
+  },
+  flip: () => {
+    review.flipped = true;
+    render();
+    const it = review.items[review.idx];
+    if (it.dir === 'de2fx') speak(it.word.fx, it.list.lang);
+  },
+  'review-answer': el => {
+    const it = review.items[review.idx];
+    if (el.dataset.ok === '1') review.known++;
+    else {
+      SRS.markUnsure(it.word);
+      review.unsure.push(it);
+    }
+    review.idx++;
+    review.flipped = false;
+    if (review.idx >= review.items.length) finishReview(); else render();
+  },
+  'quit-review': () => {
+    if (review.idx > 0 && !confirm('Durchgehen abbrechen?')) return;
+    S.activeProfile().xp += review.idx * SRS.XP.review;
+    save();
+    go('home');
+  },
+  'practice-unsure': () => {
+    const listIds = [...new Set(view.unsure.map(x => x.list.id))];
+    openModal({ type: 'learn', listIds, words: view.unsure });
+  },
 
   'new-list': () => {
     const p = S.activeProfile();
@@ -661,7 +913,7 @@ const SUBMITS = {
       state.profiles.push(p);
       state.activeProfileId = p.id;
     }
-    Object.assign(p, { name, avatar: view.avatar, mode: form.mode.value, direction: form.direction.value });
+    Object.assign(p, { name, avatar: view.avatar });
     save();
     go(view.from === 'parent' ? 'parent' : 'home');
   },
@@ -751,6 +1003,7 @@ document.addEventListener('change', e => {
 
 // Enter in der Wortliste springt zum nächsten Feld bzw. legt ein neues Wort an.
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && modal) return closeModal();
   if (e.key !== 'Enter' || view.name !== 'list-edit' || !e.target.dataset.field) return;
   e.preventDefault();
   const inputs = [...document.querySelectorAll('.words input[data-field="fx"], .words input[data-field="de"]')];

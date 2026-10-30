@@ -222,4 +222,64 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
   background: var(--text); color: var(--bg); padding: 12px 20px; border-radius: 99px; font-weight: 700;
   box-shadow: var(--shadow); z-index: 20; animation: pop .2s ease-out; max-width: calc(100% - 32px); text-align: center;
 }
+/* Startseite: Ergänzungen */
+.hero .hero-2 { display: flex; margin: 12px auto 0; background: rgba(255, 255, 255, .18); color: #fff; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .5); min-width: 220px; }
+.edit-name { appearance: none; border: 0; background: none; font-size: .9rem; padding: 2px 4px; cursor: pointer; vertical-align: middle; }
+.list-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+button.legend { appearance: none; border: 0; background: none; font: inherit; font-size: .78rem; cursor: pointer; width: 100%; }
+
+/* Auswahlfenster */
+body.modal-open { overflow: hidden; }
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 10; background: rgba(20, 16, 50, .45);
+  display: flex; align-items: flex-end; justify-content: center; padding: 16px;
+  animation: fade .15s ease-out;
+}
+@media (min-width: 600px) { .modal-backdrop { align-items: center; } }
+.modal {
+  background: var(--card); color: var(--text); border-radius: 22px; width: 100%; max-width: 520px;
+  max-height: calc(100dvh - 32px); overflow-y: auto; padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .25); animation: pop .2s ease-out;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.modal-head h2 { margin: 0; }
+.modal .label { font-weight: 700; margin: 14px 0 6px; }
+.modal .btn.wide { margin: 16px 0 0; }
+.hint-text { margin-top: 8px; }
+@keyframes fade { from { opacity: 0; } }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button {
+  appearance: none; border: 0; font: inherit; font-weight: 700; font-size: .95rem; cursor: pointer; flex: 1 1 auto;
+  min-height: 44px; padding: 8px 12px; border-radius: 12px; background: var(--bg); color: var(--text); box-shadow: inset 0 0 0 2px var(--line);
+}
+.seg button.sel { background: var(--primary); color: var(--on-primary); box-shadow: none; }
+.pick-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pick-head .label { margin-bottom: 0; }
+.pick-list { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; margin-top: 8px; }
+.pick-row {
+  appearance: none; border: 0; font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 2px var(--line);
+}
+.pick-row.sel { box-shadow: inset 0 0 0 2px var(--primary); }
+.pick-row small { display: block; color: var(--muted); }
+.pick-row .flag { font-size: 1.4rem; }
+.box-check { width: 26px; height: 26px; border-radius: 8px; flex: none; display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--on-primary); box-shadow: inset 0 0 0 2px var(--line); }
+.pick-row.sel .box-check { background: var(--primary); box-shadow: none; }
+.info-list { padding-left: 1.2rem; margin: 6px 0; }
+.info-list li { margin-bottom: 4px; }
+.info-table { width: 100%; border-collapse: collapse; font-size: .9rem; margin: 8px 0; }
+.info-table td { padding: 5px 4px; border-top: 1px solid var(--line); }
+.info-table td:first-child { white-space: nowrap; font-weight: 700; }
+.info-table i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+
+/* Durchgehen */
+.flashcard .prompt { margin-bottom: 18px; }
+.flip-answer { font-size: clamp(1.5rem, 6vw, 2.1rem); font-weight: 800; color: var(--primary); margin: 0 0 12px; padding-top: 14px; border-top: 2px dashed var(--line); animation: pop .2s ease-out; display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.self-grade { margin-top: 14px; }
+.btn.good { background: var(--ok); color: #fff; box-shadow: 0 4px 0 #148a5b; }
+.btn.bad { background: var(--bad); color: #fff; box-shadow: 0 4px 0 #b3363a; }
+.big-icon { font-size: 3.4rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0 14px; }
+.chips span { background: var(--bad-bg); color: var(--bad); font-weight: 700; padding: 4px 10px; border-radius: 99px; font-size: .9rem; }
+
 .confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
