@@ -1,6 +1,6 @@
 // Service Worker: Die App funktioniert so auch ohne Internet (auÃŸer dem Foto-Import).
 // Nach Ã„nderungen an der App die Versionsnummer erhÃ¶hen, damit GerÃ¤te die neue Version laden.
-const CACHE = 'vokabeltrainer-v3';
+const CACHE = 'vokabeltrainer-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/app.js', 'js/store.js', 'js/srs.js', 'js/scan.js',

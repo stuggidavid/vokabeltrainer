@@ -1321,6 +1321,8 @@ const CHANGES = {
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el || el.disabled) return;
+  // Klicks im Fenster (z. B. auf „Buch-Datei laden“) nicht abfangen – nur ein Klick daneben schließt es.
+  if (el.dataset.action === 'backdrop' && e.target !== el) return;
   e.preventDefault();
   ACTIONS[el.dataset.action]?.(el, e);
 });
