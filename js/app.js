@@ -18,6 +18,12 @@ const MODE_HINTS = {
 };
 const DIRECTIONS = { fx2de: 'Fremdsprache → Deutsch', de2fx: 'Deutsch → Fremdsprache', mix: 'Gemischt' };
 const SIZES = { 5: '5', 10: '10', 20: '20' };
+const SENT_MODES = { mix: 'Gemischt', gap: 'Lückensatz', puzzle: 'Satz-Puzzle' };
+const SENT_HINTS = {
+  mix: 'Mal fehlt ein Wort im Satz, mal setzt du den ganzen Satz aus Kärtchen zusammen.',
+  gap: 'Ein Wort fehlt im Satz – du tippst es ein, so wie es im Satz stehen muss.',
+  puzzle: 'Du siehst den deutschen Satz und setzt den französischen aus Kärtchen zusammen.',
+};
 const BOX_COLORS = ['var(--box0)', 'var(--box1)', 'var(--box2)', 'var(--box3)', 'var(--box4)', 'var(--box5)'];
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -47,6 +53,29 @@ function openModal(m) { modal = m; render(); }
 function closeModal() { modal = null; render(); }
 
 const validWords = list => list.words.filter(w => w.fx && w.de);
+// Wörter mit Beispielsatz, der sich als Lückensatz oder Puzzle abfragen lässt.
+const sentenceItems = lists => lists.flatMap(list => validWords(list)
+  .filter(w => w.ex?.fx && SRS.sentenceModes(w.ex, w, list.lang).length).map(word => ({ word, list })));
+// Buch-Abschnitte zählen für „Heute dran“ erst, wenn das Kind dort angefangen hat.
+const isStarted = l => !l.book || l.words.some(w => w.seen || w.ex?.seen);
+const langsOf = p => [...new Set(S.listsOf(p.id).map(l => l.lang))];
+function currentLang(p) {
+  const langs = langsOf(p);
+  return langs.includes(p.prefs.lang) ? p.prefs.lang : langs[0] || '';
+}
+const listsInLang = (p, lang) => S.listsOf(p.id).filter(l => !lang || l.lang === lang);
+const pageRange = b => b.page ? `S. ${b.page}${b.pageEnd && b.pageEnd !== b.page ? `–${b.pageEnd}` : ''}` : '';
+
+// Beispielsatz mit hervorgehobener Lücke.
+function sentenceHTML(ex, word, lang) {
+  const p = SRS.sentenceParts(ex, word, lang);
+  return `${esc(p.before)}<b>${esc(p.gap)}</b>${esc(p.after)}`;
+}
+const exampleBlock = (word, lang) => word.ex?.fx ? `
+  <div class="example"><div><span lang="${lang}">${sentenceHTML(word.ex, word, lang)}</span>
+    <button class="icon-btn small" data-action="speak" data-text="${esc(SRS.sentenceParts(word.ex, word, lang).plain)}" data-lang="${lang}" aria-label="Satz vorlesen">🔊</button></div>
+    ${word.ex.de ? `<small>${esc(word.ex.de)}</small>` : ''}</div>` : '';
+const extraInfo = word => `${word.tip ? `<p class="small tip">💡 ${esc(word.tip)}</p>` : ''}${word.note ? `<p class="small">ℹ️ ${esc(word.note)}</p>` : ''}`;
 
 // Knopfleiste zum Auswählen einer Rundeneinstellung (wird direkt im Profil gemerkt).
 const seg = (key, options, current) => `<div class="seg">${Object.entries(options).map(([v, t]) =>
@@ -109,8 +138,8 @@ function confetti() {
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isStandalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 
-function profileStats(p) {
-  const lists = S.listsOf(p.id);
+function profileStats(p, lang) {
+  const lists = listsInLang(p, lang).filter(isStarted);
   const words = lists.flatMap(l => l.words).filter(w => w.fx && w.de);
   const now = Date.now();
   return {
@@ -177,12 +206,33 @@ const VIEWS = {
 
   home() {
     const p = S.activeProfile();
-    const st = profileStats(p);
+    const lang = currentLang(p);
+    const langs = langsOf(p);
+    const all = listsInLang(p, lang);
+    const st = profileStats(p, lang);
     const L = SRS.levelOf(p.xp);
     const pct = Math.round(100 * (p.xp - SRS.xpForLevel(L)) / (SRS.xpForLevel(L + 1) - SRS.xpForLevel(L)));
     const streak = SRS.currentStreak(p);
     const todo = st.due + st.fresh;
-    const lists = st.lists.slice().sort((a, b) => b.createdAt - a.createdAt).map(l => {
+    const books = new Map();
+    for (const l of all.filter(l => l.book)) {
+      if (!books.has(l.book.id)) books.set(l.book.id, { id: l.book.id, title: l.book.title, lists: [] });
+      books.get(l.book.id).lists.push(l);
+    }
+    const bookCards = [...books.values()].map(b => {
+      const words = b.lists.flatMap(validWords);
+      const units = [...new Set(b.lists.map(l => l.book.unitTitle.split(' · ')[0]))];
+      return `
+      <div class="list-card">
+        <button class="list-main" data-action="open-book" data-id="${b.id}">
+          <span class="flag">📘</span>
+          <span class="list-info"><b>${esc(b.title)}</b><small>${esc(units[0])}${units.length > 1 ? ` bis ${esc(units.at(-1))}` : ''} · ${words.length} Wörter · ${words.filter(w => w.box >= SRS.SOLID_BOX).length} gut gelernt</small>${boxBar(words)}</span>
+          <span class="chev">›</span>
+        </button>
+      </div>`;
+    }).join('');
+    const firstBook = [...books.keys()][0];
+    const lists = all.filter(l => !l.book).sort((a, b) => b.createdAt - a.createdAt).map(l => {
       const valid = validWords(l);
       return `
       <div class="list-card">
@@ -203,10 +253,16 @@ const VIEWS = {
         <div class="streak ${streak ? 'on' : ''}" title="Tage am Stück">🔥 ${streak}</div>
       </header>
 
+      ${langs.length > 1 ? `<div class="seg tabs">${langs.map(k => `<button class="${k === lang ? 'sel' : ''}" data-action="set-lang" data-v="${k}">${LANGS[k]?.flag || ''} ${LANGS[k]?.name || k}</button>`).join('')}</div>` : ''}
+
       <section class="card hero">
-        ${st.total === 0
-          ? `<h2>Noch keine Vokabeln</h2><p>Fotografiere eine Vokabelseite aus deinem Schulbuch oder lege eine Liste an.</p>
-             <button class="btn primary big" data-action="scan">📷 Vokabeln fotografieren</button>`
+        ${!all.length
+          ? `<h2>Noch keine Vokabeln</h2><p>Füge dein Schulbuch hinzu, fotografiere eine Vokabelseite oder lege eine Liste an.</p>
+             <button class="btn primary big" data-action="open-books">📚 Buch hinzufügen</button>
+             <button class="btn hero-2" data-action="scan">📷 Vokabeln fotografieren</button>`
+          : st.total === 0
+          ? `<h2>Los geht's!</h2><p>Öffne dein Buch und wähle aus, was du lernen möchtest.</p>
+             <button class="btn primary big" data-action="open-book" data-id="${firstBook}">📘 Buch öffnen</button>`
           : `${todo > 0
               ? `<h2>Heute dran: ${todo} ${todo === 1 ? 'Wort' : 'Wörter'}</h2><p>${st.due} zum Wiederholen · ${st.fresh} neu</p>
                  <button class="btn primary big" data-action="learn-all">Los geht's! 🚀</button>`
@@ -214,6 +270,12 @@ const VIEWS = {
                  <button class="btn primary big" data-action="learn-all">Freies Üben</button>`}
              <button class="btn hero-2" data-action="review-pick">🃏 Schnell durchgehen</button>`}
       </section>
+
+      <div class="section-head">
+        <h2>Meine Bücher</h2>
+        <button class="btn small" data-action="open-books">＋ Buch</button>
+      </div>
+      ${bookCards || '<p class="small center">Noch kein Buch. Mit „＋ Buch“ holst du dir die Vokabeln aus deinem Schulbuch.</p>'}
 
       <div class="section-head">
         <h2>Meine Listen</h2>
@@ -231,6 +293,64 @@ const VIEWS = {
       <button class="legend" data-action="info">Karteikasten: ${BOX_COLORS.map((c, i) => `<span><i style="background:${c}"></i>${i}</span>`).join('')}<span><i style="background:var(--unseen)"></i>neu</span><span>ℹ️ Wie funktioniert das?</span></button>`;
   },
 
+  // Buch: Unités mit ihren Abschnitten (A1, B2 … und ★-Sonderkästen) zum Ankreuzen.
+  book() {
+    const p = S.activeProfile();
+    const lists = S.listsOf(p.id).filter(l => l.book?.id === view.id).sort((a, b) => a.book.order - b.book.order);
+    if (!lists.length) return VIEWS.home();
+    const sel = new Set(view.sel);
+    const units = [];
+    for (const l of lists) {
+      if (units.at(-1)?.id !== l.book.unit) units.push({ id: l.book.unit, title: l.book.unitTitle, lists: [] });
+      units.at(-1).lists.push(l);
+    }
+    view.open ??= new Set(units.filter(u => u.lists.some(l => sel.has(l.id))).map(u => u.id));
+    if (!view.open.size) view.open.add(units[0].id);
+    const chosen = lists.filter(l => sel.has(l.id));
+    const nWords = chosen.reduce((n, l) => n + validWords(l).length, 0);
+    const nSent = sentenceItems(chosen).length;
+    const html = units.map(u => {
+      const words = u.lists.flatMap(validWords);
+      const allSel = u.lists.every(l => sel.has(l.id)), someSel = u.lists.some(l => sel.has(l.id));
+      const pages = u.lists.flatMap(l => [l.book.page, l.book.pageEnd]).filter(Boolean);
+      const open = view.open.has(u.id);
+      return `
+      <section class="card unit">
+        <div class="unit-head">
+          <button class="unit-check ${allSel ? 'on' : someSel ? 'some' : ''}" data-action="toggle-unit" data-unit="${esc(u.id)}" aria-label="Ganze Unité auswählen"><span class="box-check">${allSel ? '✓' : someSel ? '–' : ''}</span></button>
+          <button class="unit-title" data-action="toggle-open" data-unit="${esc(u.id)}">
+            <span class="grow"><b>${esc(u.title)}</b><small>${pages.length ? `S. ${Math.min(...pages)}–${Math.max(...pages)} · ` : ''}${words.length} Wörter · ${words.filter(w => w.box >= SRS.SOLID_BOX).length} gut gelernt</small>${boxBar(words)}</span>
+            <span class="chev">${open ? '▾' : '▸'}</span>
+          </button>
+        </div>
+        ${open ? `<div class="pick-list sections">${u.lists.map(l => {
+          const v = validWords(l);
+          return `
+          <button class="pick-row ${sel.has(l.id) ? 'sel' : ''} ${l.book.extra ? 'extra' : ''}" data-action="toggle-section" data-id="${l.id}">
+            <span class="box-check">${sel.has(l.id) ? '✓' : ''}</span>
+            <span class="grow"><b>${esc(l.book.name)}</b><small>${[pageRange(l.book), `${v.length} ${v.length === 1 ? 'Wort' : 'Wörter'}`, `${v.filter(w => w.box >= SRS.SOLID_BOX).length} gut gelernt`].filter(Boolean).join(' · ')}</small>${boxBar(v)}</span>
+          </button>`;
+        }).join('')}</div>` : ''}
+      </section>`;
+    }).join('');
+    return `
+      <header class="top">
+        <button class="icon-btn" data-action="back-home" aria-label="Zurück">←</button>
+        <h1>${esc(lists[0].book.title)}</h1><span></span>
+      </header>
+      <p class="small center">Kreuze an, was du üben möchtest – ganze Unités oder einzelne Abschnitte. ★ sind die Sonderkästen.</p>
+      ${html}
+      <button class="btn danger-outline wide" data-action="remove-book">Buch aus meinem Profil entfernen</button>
+      <div class="sel-bar">
+        <div class="small center">${chosen.length ? `${nWords} Wörter · ${nSent} Sätze ausgewählt` : 'Noch nichts ausgewählt'}</div>
+        <div class="row stretch">
+          <button class="btn primary" data-action="book-learn" ${nWords ? '' : 'disabled'}>Lernen</button>
+          <button class="btn" data-action="book-sentences" ${nSent ? '' : 'disabled'}>✍️ Sätze</button>
+          <button class="btn" data-action="book-review" ${nWords ? '' : 'disabled'} aria-label="Schnell durchgehen">🃏</button>
+        </div>
+      </div>`;
+  },
+
   'list-edit'() {
     const l = S.getList(view.id);
     if (!l) return VIEWS.home();
@@ -241,6 +361,8 @@ const VIEWS = {
         <button class="icon-btn small" data-action="speak-word" data-id="${w.id}" aria-label="Vorlesen">🔊</button>
         <button class="icon-btn small danger" data-action="del-word" data-id="${w.id}" aria-label="Löschen">✕</button>
         <input data-field="note" class="note" value="${esc(w.note)}" placeholder="Notiz (optional)" autocomplete="off">
+        <input data-exfield="fx" class="note" value="${esc(w.ex?.fx)}" placeholder="Beispielsatz (optional)" lang="${l.lang}" autocapitalize="off" autocomplete="off" spellcheck="false">
+        <input data-exfield="de" class="note" value="${esc(w.ex?.de)}" placeholder="Satz auf Deutsch" lang="de" autocapitalize="off" autocomplete="off" spellcheck="false">
         <span class="dots" title="Fach ${w.seen ? w.box : 'neu'}">${w.seen ? `<i style="background:${BOX_COLORS[w.box]}"></i>Fach ${w.box}` : '<i style="background:var(--unseen)"></i>neu'}</span>
       </div>`).join('');
     return `
@@ -273,7 +395,7 @@ const VIEWS = {
     if (s.status === 'loading') return header + `
       <div class="card center loading"><div class="spinner"></div><h2>Ich lese die Vokabeln …</h2><p>Das dauert meist 20–60 Sekunden.</p></div>`;
     if (s.status === 'review') {
-      const lists = S.listsOf(p.id);
+      const lists = S.listsOf(p.id).filter(l => !l.book);
       const checked = s.result.words.filter(w => w.use).length;
       return header + `
         <div class="card">
@@ -288,6 +410,9 @@ const VIEWS = {
               <label class="check"><input type="checkbox" data-rfield="use" ${w.use ? 'checked' : ''}></label>
               <span></span>
               <input data-rfield="note" class="note" value="${esc(w.note)}" placeholder="Notiz (optional)" autocomplete="off">
+              ${w.example ? `
+                <input data-rfield="example" class="note" value="${esc(w.example)}" placeholder="Beispielsatz" autocapitalize="off" autocomplete="off" spellcheck="false">
+                <input data-rfield="example_de" class="note" value="${esc(w.example_de)}" placeholder="Satz auf Deutsch" autocapitalize="off" autocomplete="off" spellcheck="false">` : ''}
             </div>`).join('')}
         </div>
         <div class="card form">
@@ -322,6 +447,15 @@ const VIEWS = {
     const it = session.items[session.idx];
     const total = session.items.length;
     const a = session.answered;
+    const top = `
+      <header class="top train-top">
+        <button class="icon-btn" data-action="quit-train" aria-label="Beenden">✕</button>
+        <div class="progress"><span style="width:${Math.round(100 * (session.idx + (a ? 1 : 0)) / total)}%"></span></div>
+        <span class="count">${Math.min(session.idx + 1, total)}/${total}</span>
+      </header>
+      ${session.practice ? '<p class="small center">Freies Üben – zählt nicht für den Karteikasten</p>' : ''}`;
+    const tag = it.retry ? '<span class="tag">nochmal</span>' : `<span class="tag box">${it.box === null ? 'neu' : `Fach ${it.box}`}</span>`;
+    if (it.mode === 'gap' || it.mode === 'puzzle') return top + sentenceCard(it, a, tag);
     const prompt = it.dir === 'fx2de' ? it.word.fx : it.word.de;
     const promptLang = it.dir === 'fx2de' ? it.list.lang : 'de';
     const expected = it.dir === 'fx2de' ? it.word.de : it.word.fx;
@@ -353,21 +487,15 @@ const VIEWS = {
         <div class="feedback ${a.ok ? 'ok' : 'bad'}">
           <div class="fb-title">${a.ok ? pickPraise() : (a.close ? 'Fast richtig!' : 'Leider falsch')}</div>
           ${a.ok ? (hint ? `<p>${hint}</p>` : '') : `<p>Richtig ist: <b>${esc(expected)}</b></p>`}
-          ${it.word.note ? `<p class="small">ℹ️ ${esc(it.word.note)}</p>` : ''}
+          ${exampleBlock(it.word, it.list.lang)}
+          ${extraInfo(it.word)}
           <button class="btn primary big" data-action="next" id="next">Weiter →</button>
         </div>`;
     }
 
-    return `
-      <header class="top train-top">
-        <button class="icon-btn" data-action="quit-train" aria-label="Beenden">✕</button>
-        <div class="progress"><span style="width:${Math.round(100 * (session.idx + (a ? 1 : 0)) / total)}%"></span></div>
-        <span class="count">${Math.min(session.idx + 1, total)}/${total}</span>
-      </header>
-      ${session.practice ? '<p class="small center">Freies Üben – zählt nicht für den Karteikasten</p>' : ''}
+    return top + `
       <section class="card quiz">
-        <div class="q-head"><span class="flag">${LANGS[it.list.lang]?.flag || ''}</span><span class="small">${question}</span>
-          ${it.retry ? '<span class="tag">nochmal</span>' : `<span class="tag box">${it.box === null ? 'neu' : `Fach ${it.box}`}</span>`}</div>
+        <div class="q-head"><span class="flag">${LANGS[it.list.lang]?.flag || ''}</span><span class="small">${question}</span>${tag}</div>
         <div class="prompt">${esc(prompt)}
           ${promptLang !== 'de' ? `<button class="icon-btn small" data-action="speak" data-text="${esc(prompt)}" data-lang="${promptLang}" aria-label="Vorlesen">🔊</button>` : ''}
         </div>
@@ -415,7 +543,8 @@ const VIEWS = {
         <div class="prompt">${esc(prompt)} ${speakBtn(prompt, promptLang)}</div>
         ${review.flipped
           ? `<div class="flip-answer">${esc(back)} ${speakBtn(back, backLang)}</div>
-             ${it.word.note ? `<p class="small">ℹ️ ${esc(it.word.note)}</p>` : ''}
+             ${exampleBlock(it.word, it.list.lang)}
+             ${extraInfo(it.word)}
              <div class="row stretch self-grade">
                <button class="btn big bad" data-action="review-answer" data-ok="0">✗ Wusste ich nicht</button>
                <button class="btn big good" data-action="review-answer" data-ok="1" id="knew">✓ Wusste ich</button>
@@ -479,7 +608,7 @@ const VIEWS = {
         ${state.profiles.map(p => `
           <div class="parent-row">
             <span class="avatar sm">${p.avatar}</span>
-            <span class="grow"><b>${esc(p.name)}</b><small>${S.listsOf(p.id).length} Listen · Level ${SRS.levelOf(p.xp)}</small></span>
+            <span class="grow"><b>${esc(p.name)}</b><small>${S.listsOf(p.id).reduce((n, l) => n + l.words.length, 0)} Wörter · Level ${SRS.levelOf(p.xp)}</small></span>
             <button class="btn small" data-action="edit-profile" data-id="${p.id}">Bearbeiten</button>
             <button class="icon-btn small danger" data-action="delete-profile" data-id="${p.id}" aria-label="Profil löschen">🗑️</button>
           </div>`).join('') || '<p class="small">Noch keine Profile.</p>'}
@@ -494,6 +623,57 @@ const VIEWS = {
       </section>`;
   },
 };
+
+// Lückensatz oder Satz-Puzzle
+function sentenceCard(it, a, tag) {
+  const { parts, list } = it;
+  const lang = list.lang;
+  let body;
+  if (it.mode === 'gap') {
+    const w = Math.max(5, parts.gap.length + 2);
+    body = `
+      <form class="gap-form" data-submit="gap-answer">
+        <p class="sentence" lang="${lang}">${esc(parts.before)}<input name="answer" id="answer" class="gap-input ${a ? (a.ok ? 'right' : 'wrong') : ''}" style="width:${w}ch"
+          lang="${lang}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(a?.input)}" ${a ? 'disabled' : ''}>${esc(parts.after)}</p>
+        ${a ? '' : '<button class="btn primary big wide" type="submit">Prüfen</button>'}
+      </form>
+      ${a ? '' : '<button class="link" data-action="dont-know">Weiß ich nicht</button>'}`;
+  } else {
+    const done = it.placed.length === it.pool.length;
+    body = `
+      <div class="puzzle-line ${a ? (a.ok ? 'right' : 'wrong') : ''}" lang="${lang}">
+        ${it.placed.map((pi, i) => `<button class="tile" data-action="unplace" data-i="${i}" ${a ? 'disabled' : ''}>${esc(it.pool[pi])}</button>`).join('') || '<span class="small">Tippe die Kärtchen in der richtigen Reihenfolge an.</span>'}
+      </div>
+      ${a ? '' : `
+        <div class="puzzle-pool" lang="${lang}">
+          ${it.pool.map((t, i) => `<button class="tile ${it.placed.includes(i) ? 'used' : ''}" data-action="place" data-i="${i}" ${it.placed.includes(i) ? 'disabled' : ''}>${esc(t)}</button>`).join('')}
+        </div>
+        <button class="btn primary big wide" data-action="check-puzzle" ${done ? '' : 'disabled'}>Prüfen</button>
+        <button class="link" data-action="dont-know">Weiß ich nicht</button>`}`;
+  }
+  let feedback = '';
+  if (a) {
+    const hint = a.hint === 'accent' ? `Achte auf die genaue Schreibweise: <b>${esc(parts.gap)}</b>` : '';
+    feedback = `
+      <div class="feedback ${a.ok ? 'ok' : 'bad'}">
+        <div class="fb-title">${a.ok ? pickPraise() : (a.close ? 'Fast richtig!' : 'Leider falsch')}</div>
+        ${a.ok && hint ? `<p>${hint}</p>` : ''}
+        ${a.ok ? '' : '<p>Richtig ist:</p>'}
+        ${exampleBlock(it.word, lang)}
+        <p class="small">Vokabel: <b>${esc(it.word.fx)}</b> – ${esc(it.word.de)}</p>
+        ${extraInfo(it.word)}
+        <button class="btn primary big" data-action="next" id="next">Weiter →</button>
+      </div>`;
+  }
+  return `
+    <section class="card quiz">
+      <div class="q-head"><span class="flag">${LANGS[lang]?.flag || ''}</span>
+        <span class="small">${it.mode === 'gap' ? 'Welches Wort fehlt?' : 'Bilde den Satz!'}</span>${tag}</div>
+      <div class="sentence-de">${esc(it.word.ex.de) || '&nbsp;'}</div>
+      ${body}
+    </section>
+    ${feedback}`;
+}
 
 const PRAISE = ['Richtig! 🎉', 'Super! ⭐', 'Klasse! 💪', 'Genau! ✅', 'Stark! 🚀', 'Perfekt! 🌟'];
 const pickPraise = () => PRAISE[Math.floor(Math.random() * PRAISE.length)];
@@ -526,7 +706,7 @@ const MODALS = {
         ? `${due} zum Wiederholen · ${fresh} neu`
         : 'Alles erledigt – das wird freies Üben (zählt nicht für den Karteikasten).';
     }
-    const what = lists.length === 1 ? esc(lists[0].name) : `${lists.length} Listen`;
+    const what = listsLabel(lists);
     return modalShell('Neue Runde', `
       <p class="small">${what} · ${info}</p>
       <div class="label">Richtung</div>${seg('direction', DIRECTIONS, pr.direction)}
@@ -536,11 +716,44 @@ const MODALS = {
       <button class="btn primary big wide" data-action="start-learn">Los geht's! 🚀</button>`);
   },
 
+  // Vor einer Sätze-Runde: Übungsart und Rundengröße.
+  sentences() {
+    const pr = S.activeProfile().prefs;
+    const lists = modal.listIds.map(S.getList).filter(Boolean);
+    const exs = sentenceItems(lists).map(x => x.word.ex);
+    const due = exs.filter(e => SRS.isDue(e)).length, fresh = exs.filter(e => !e.seen).length;
+    return modalShell('✍️ Sätze üben', `
+      <p class="small">${listsLabel(lists)} · ${exs.length} Sätze · ${due + fresh ? `${due} zum Wiederholen · ${fresh} neu` : 'alles erledigt – das wird freies Üben'}</p>
+      <div class="label">Übung</div>${seg('sentenceMode', SENT_MODES, pr.sentenceMode)}
+      <p class="small hint-text">${SENT_HINTS[pr.sentenceMode]}</p>
+      <div class="label">Sätze pro Runde</div>${seg('size', SIZES, pr.size)}
+      <button class="btn primary big wide" data-action="start-sentences">Los geht's! ✍️</button>`);
+  },
+
+  // Bücher auf diesem Gerät, plus Buch-Datei laden.
+  books() {
+    const p = S.activeProfile();
+    const rows = state.books.map(b => {
+      const n = b.units.reduce((s, u) => s + u.sections.reduce((t, sec) => t + sec.words.length, 0), 0);
+      return `
+        <div class="parent-row">
+          <span class="flag">${LANGS[b.lang]?.flag || '📘'}</span>
+          <span class="grow"><b>${esc(b.title)}</b><small>${b.units.length} Kapitel · ${n} Wörter</small></span>
+          ${S.hasBook(p.id, b.id) ? '<span class="small">✓ schon dabei</span>' : `<button class="btn small primary" data-action="add-book" data-id="${esc(b.id)}">Hinzufügen</button>`}
+        </div>`;
+    }).join('');
+    return modalShell('📚 Buch hinzufügen', `
+      ${rows || '<p class="small">Auf diesem Gerät ist noch kein Buch gespeichert.</p>'}
+      <label class="btn wide"><input type="file" accept="application/json,.json" data-change="import-book" hidden>📂 Buch-Datei laden</label>
+      <p class="small">Die Buch-Datei (.json) bekommst du z. B. per AirDrop oder Mail. Speichere sie in der App „Dateien“ und lade sie hier.
+        Ist ein Buch schon da, wird es mit der neuen Datei aktualisiert – der Lernstand bleibt erhalten.</p>`);
+  },
+
   // Vor dem Durchgehen: Listen und Richtung wählen.
   review() {
     const p = S.activeProfile();
     const sel = new Set(modal.selected);
-    const lists = S.listsOf(p.id).filter(l => validWords(l).length).sort((a, b) => b.createdAt - a.createdAt);
+    const lists = modal.pool.map(S.getList).filter(l => l && validWords(l).length);
     const total = lists.filter(l => sel.has(l.id)).reduce((n, l) => n + validWords(l).length, 0);
     return modalShell('🃏 Schnell durchgehen', `
       <div class="pick-head"><div class="label">Listen</div>
@@ -578,6 +791,11 @@ const MODALS = {
   },
 };
 
+function listsLabel(lists) {
+  if (lists.length === 1) return esc(lists[0].name);
+  return `${lists.length} ${lists.every(l => l.book) ? 'Abschnitte' : 'Listen'}`;
+}
+
 // ---------- Training ----------
 // Entweder aus Listen (fällige + neue Wörter) oder mit fest vorgegebenen Wörtern (unsichere aus dem Durchgehen).
 function startSession(lists, { picked = null } = {}) {
@@ -605,25 +823,60 @@ function startSession(lists, { picked = null } = {}) {
       choices = SRS.shuffle([correct, ...SRS.shuffle(pool).slice(0, 3)]);
       if (choices.length < 3) mode = 'type';
     }
-    return { word, list, dir, mode, choices, retry: false, box: word.seen ? word.box : null };
+    return { word, list, target: word, dir, mode, choices, retry: false, box: word.seen ? word.box : null };
   });
-  session = { items, idx: 0, firstCount: items.length, right: 0, xp: 0, answered: null, practice, listIds: lists.map(l => l.id) };
+  session = { kind: 'words', items, idx: 0, firstCount: items.length, right: 0, xp: 0, answered: null, practice, listIds: lists.map(l => l.id) };
+  go('train');
+}
+
+// Puzzle-Kärtchen mischen (möglichst nicht schon in der richtigen Reihenfolge).
+function shufflePuzzle(it) {
+  let pool = SRS.shuffle(it.tokens);
+  for (let i = 0; i < 5 && pool.join(' ') === it.tokens.join(' '); i++) pool = SRS.shuffle(it.tokens);
+  return { ...it, pool, placed: [] };
+}
+
+// Sätze-Runde: Beispielsätze haben einen eigenen Karteikasten (word.ex.box …).
+function startSentences(lists) {
+  const pr = S.activeProfile().prefs;
+  const owner = new Map();
+  const pseudo = lists.map(l => ({ ...l, words: sentenceItems([l]).map(({ word }) => (owner.set(word.ex, word), word.ex)) }));
+  let practice = false;
+  let picked = SRS.buildSession(pseudo, { size: pr.size });
+  if (!picked.length) {
+    practice = true;
+    picked = SRS.buildSession(pseudo, { practice, size: pr.size });
+  }
+  if (!picked.length) return toast('Hier gibt es keine Beispielsätze.');
+  const items = picked.map(({ word: ex, list }) => {
+    const word = owner.get(ex);
+    const real = S.getList(list.id);
+    const modes = SRS.sentenceModes(ex, word, real.lang);
+    const mode = modes.includes(pr.sentenceMode) ? pr.sentenceMode : modes[Math.floor(Math.random() * modes.length)];
+    const parts = SRS.sentenceParts(ex, word, real.lang);
+    const it = { word, list: real, target: ex, mode, parts, tokens: SRS.sentenceTokens(parts.plain), retry: false, box: ex.seen ? ex.box : null };
+    return mode === 'puzzle' ? shufflePuzzle(it) : it;
+  });
+  session = { kind: 'sentences', items, idx: 0, firstCount: items.length, right: 0, xp: 0, answered: null, practice, listIds: lists.map(l => l.id) };
   go('train');
 }
 
 function answer(ok, extra = {}) {
   const it = session.items[session.idx];
   if (!it.retry) {
-    if (!session.practice) SRS.grade(it.word, ok, { maxBox: it.mode === 'type' ? SRS.MAX_BOX : SRS.CHOICE_MAX_BOX });
+    if (!session.practice) SRS.grade(it.target, ok, { maxBox: it.mode === 'choice' ? SRS.CHOICE_MAX_BOX : SRS.MAX_BOX });
     if (ok) session.right++;
   }
-  if (ok) session.xp += it.retry ? SRS.XP.retry : it.mode === 'type' ? SRS.XP.type : SRS.XP.choice;
-  else if (!it.retry) session.items.push({ ...it, retry: true, choices: it.choices && SRS.shuffle(it.choices) });
+  if (ok) session.xp += it.retry ? SRS.XP.retry : SRS.XP[it.mode];
+  else if (!it.retry) {
+    const again = { ...it, retry: true, choices: it.choices && SRS.shuffle(it.choices) };
+    session.items.push(it.mode === 'puzzle' ? shufflePuzzle(again) : again);
+  }
   session.answered = { ok, ...extra };
   save();
   render();
-  const fx = it.word.fx;
-  if ('speechSynthesis' in window) setTimeout(() => speak(fx, it.list.lang), 250);
+  const text = it.parts ? it.parts.plain : it.word.fx;
+  if ('speechSynthesis' in window) setTimeout(() => speak(text, it.list.lang), 250);
 }
 
 function finishSession() {
@@ -639,21 +892,24 @@ function finishSession() {
   const level = SRS.levelOf(p.xp);
   go('result', {
     right: session.right, total: session.firstCount, accuracy: session.right / session.firstCount,
-    xp, level, levelUp: level > levelBefore, streak: SRS.currentStreak(p), badges, listIds: session.listIds,
+    xp, level, levelUp: level > levelBefore, streak: SRS.currentStreak(p), badges, listIds: session.listIds, kind: session.kind,
   });
   if (session.right / session.firstCount >= 0.7 || badges.length) confetti();
 }
 
 // ---------- Durchgehen (Karteikarten) ----------
-function openReviewPicker(selected) {
+// pool = Listen, die im Fenster zur Wahl stehen (Standard: alles Begonnene in der aktuellen Sprache).
+function openReviewPicker(selected, pool) {
   const p = S.activeProfile();
-  const own = new Set(S.listsOf(p.id).filter(l => validWords(l).length).map(l => l.id));
-  let ids = (selected || p.prefs.reviewListIds).filter(id => own.has(id));
+  pool ??= [...new Set([...listsInLang(p, currentLang(p)).filter(isStarted).map(l => l.id), ...(selected || [])])];
+  pool = pool.filter(id => { const l = S.getList(id); return l && validWords(l).length; });
+  if (!pool.length) return toast('Hier gibt es noch nichts zum Durchgehen – fang erst mit Lernen an.');
+  let ids = (selected || p.prefs.reviewListIds).filter(id => pool.includes(id));
   if (!ids.length) {
-    const newest = S.listsOf(p.id).filter(l => own.has(l.id)).sort((a, b) => b.createdAt - a.createdAt)[0];
-    ids = newest ? [newest.id] : [];
+    const newest = pool.map(S.getList).sort((a, b) => b.createdAt - a.createdAt)[0];
+    ids = [newest.id];
   }
-  openModal({ type: 'review', selected: ids });
+  openModal({ type: 'review', selected: ids, pool });
 }
 
 function startReview(listIds) {
@@ -681,8 +937,27 @@ function finishReview() {
 
 // ---------- Aktionen ----------
 function cleanEmptyWords(list) {
-  if (list) list.words = list.words.filter(w => w.fx.trim() || w.de.trim());
+  if (list) {
+    list.words = list.words.filter(w => w.fx.trim() || w.de.trim());
+    for (const w of list.words) if (w.ex && !w.ex.fx.trim()) w.ex = null;
+  }
   save();
+}
+
+// Auswahl im Buch merken (pro Profil und Buch).
+function setBookSel(ids) {
+  view.sel = ids;
+  S.activeProfile().prefs.bookSel[view.id] = ids;
+  save();
+  render();
+}
+const bookLists = () => S.listsOf(state.activeProfileId).filter(l => l.book?.id === view.id);
+const selectedBookLists = () => bookLists().filter(l => view.sel.includes(l.id)).sort((a, b) => a.book.order - b.book.order);
+
+function openBook(id) {
+  const p = S.activeProfile();
+  const own = new Set(S.listsOf(p.id).filter(l => l.book?.id === id).map(l => l.id));
+  go('book', { id, sel: (p.prefs.bookSel[id] || []).filter(x => own.has(x)) });
 }
 
 const ACTIONS = {
@@ -701,9 +976,69 @@ const ACTIONS = {
   'back-list': () => go('list-edit', { id: view.listId }),
   'open-parent': () => go(parentUnlocked ? 'parent' : 'parent-gate'),
 
-  'learn-all': () => openModal({ type: 'learn', listIds: S.listsOf(state.activeProfileId).map(l => l.id) }),
+  'learn-all': () => {
+    const p = S.activeProfile();
+    openModal({ type: 'learn', listIds: listsInLang(p, currentLang(p)).filter(isStarted).map(l => l.id) });
+  },
   'learn-list': el => { cleanEmptyWords(S.getList(el.dataset.id)); openModal({ type: 'learn', listIds: [el.dataset.id] }); },
-  again: () => openModal({ type: 'learn', listIds: view.listIds }),
+  again: () => openModal({ type: view.kind === 'sentences' ? 'sentences' : 'learn', listIds: view.listIds }),
+  'set-lang': el => { S.activeProfile().prefs.lang = el.dataset.v; save(); render(); },
+
+  'open-books': () => openModal({ type: 'books' }),
+  'add-book': el => {
+    const p = S.activeProfile();
+    const book = state.books.find(b => b.id === el.dataset.id);
+    S.syncBook(p.id, book);
+    p.prefs.lang = book.lang;
+    save();
+    toast(`${book.title} hinzugefügt ✓`);
+    openBook(book.id);
+  },
+  'open-book': el => openBook(el.dataset.id),
+  'remove-book': () => {
+    const title = bookLists()[0]?.book.title;
+    if (!confirm(`„${title}“ aus deinem Profil entfernen? Dein Lernstand in diesem Buch geht dabei verloren.`)) return;
+    S.removeBook(state.activeProfileId, view.id);
+    go('home');
+  },
+  'toggle-section': el => {
+    const id = el.dataset.id;
+    setBookSel(view.sel.includes(id) ? view.sel.filter(x => x !== id) : [...view.sel, id]);
+  },
+  'toggle-unit': el => {
+    const ids = bookLists().filter(l => l.book.unit === el.dataset.unit).map(l => l.id);
+    const all = ids.every(id => view.sel.includes(id));
+    view.open.add(el.dataset.unit);
+    setBookSel(all ? view.sel.filter(x => !ids.includes(x)) : [...new Set([...view.sel, ...ids])]);
+  },
+  'toggle-open': el => {
+    const u = el.dataset.unit;
+    view.open.has(u) ? view.open.delete(u) : view.open.add(u);
+    render();
+  },
+  'book-learn': () => openModal({ type: 'learn', listIds: selectedBookLists().map(l => l.id) }),
+  'book-sentences': () => openModal({ type: 'sentences', listIds: selectedBookLists().map(l => l.id) }),
+  'book-review': () => { const ids = selectedBookLists().map(l => l.id); openReviewPicker(ids, ids); },
+  'start-sentences': () => {
+    const lists = modal.listIds.map(S.getList).filter(Boolean);
+    modal = null;
+    save();
+    startSentences(lists);
+  },
+  place: el => {
+    const it = session.items[session.idx];
+    if (!it.placed.includes(+el.dataset.i)) it.placed.push(+el.dataset.i);
+    render();
+  },
+  unplace: el => {
+    session.items[session.idx].placed.splice(+el.dataset.i, 1);
+    render();
+  },
+  'check-puzzle': () => {
+    const it = session.items[session.idx];
+    const built = it.placed.map(i => it.pool[i]).join(' ');
+    answer(built === it.tokens.join(' '));
+  },
   'start-learn': () => {
     const m = modal;
     modal = null;
@@ -729,7 +1064,7 @@ const ACTIONS = {
     modal.selected = modal.selected.includes(id) ? modal.selected.filter(x => x !== id) : [...modal.selected, id];
     render();
   },
-  'review-all': () => { modal.selected = S.listsOf(state.activeProfileId).map(l => l.id); render(); },
+  'review-all': () => { modal.selected = [...modal.pool]; render(); },
   'review-none': () => { modal.selected = []; render(); },
   'start-review': () => {
     const p = S.activeProfile();
@@ -768,8 +1103,8 @@ const ACTIONS = {
 
   'new-list': () => {
     const p = S.activeProfile();
-    const last = S.listsOf(p.id).at(-1);
-    const l = S.newList(p.id, `Liste ${S.listsOf(p.id).length + 1}`, last?.lang || 'en');
+    const own = S.listsOf(p.id).filter(l => !l.book);
+    const l = S.newList(p.id, `Liste ${own.length + 1}`, currentLang(p) || 'en');
     state.lists.push(l);
     l.words.push(S.newWord('', ''));
     save();
@@ -817,7 +1152,7 @@ const ACTIONS = {
       if (!result.words.length) throw new Error('Auf den Fotos wurden keine Vokabeln gefunden.');
       result.words.forEach(w => (w.use = true));
       const p = S.activeProfile();
-      const lists = S.listsOf(p.id);
+      const lists = S.listsOf(p.id).filter(l => !l.book);
       const target = s.listId || 'new';
       Object.assign(s, {
         status: 'review', result, target,
@@ -840,7 +1175,7 @@ const ACTIONS = {
       state.lists.push(list);
     }
     const words = s.result.words.filter(w => w.use && w.fx.trim() && w.de.trim());
-    list.words.push(...words.map(w => S.newWord(w.fx, w.de, w.note)));
+    list.words.push(...words.map(w => S.newWord(w.fx, w.de, w.note, { ex: { fx: w.example || '', de: w.example_de || '' } })));
     if (!p.badges.includes('scanner')) p.badges.push('scanner');
     save();
     toast(`${words.length} Vokabeln gespeichert ✓`);
@@ -926,6 +1261,13 @@ const SUBMITS = {
     const r = SRS.checkAnswer(input, expected, ansLang);
     answer(r.ok, { input, hint: r.hint, close: r.close });
   },
+  'gap-answer': form => {
+    const input = form.answer.value;
+    if (!input.trim()) return;
+    const it = session.items[session.idx];
+    const r = SRS.checkAnswer(input, it.parts.gap, it.list.lang);
+    answer(r.ok, { input, hint: r.hint, close: r.close });
+  },
   'parent-gate': form => {
     if (+form.r.value === view.a * view.b) { parentUnlocked = true; go('parent'); }
     else { toast('Leider falsch'); view.a = view.b = undefined; render(); }
@@ -946,13 +1288,31 @@ const CHANGES = {
     const file = input.files[0];
     input.value = '';
     if (!file) return;
-    if (!confirm('Achtung: Die Sicherung ersetzt alle aktuellen Daten auf diesem Gerät. Fortfahren?')) return;
     try {
-      S.importJSON(await file.text());
+      const text = await file.text();
+      if (S.isBookFile(JSON.parse(text))) {
+        const book = S.importBook(text);
+        toast(`Buch „${book.title}“ gespeichert ✓`);
+        return render();
+      }
+      if (!confirm('Achtung: Die Sicherung ersetzt alle aktuellen Daten auf diesem Gerät. Fortfahren?')) return;
+      S.importJSON(text);
       toast('Sicherung geladen ✓');
       render();
     } catch (e) {
       alert('Import fehlgeschlagen: ' + e.message);
+    }
+  },
+  'import-book': async input => {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      const book = S.importBook(await file.text());
+      toast(`Buch „${book.title}“ geladen ✓`);
+      render();
+    } catch (e) {
+      alert('Das hat nicht geklappt: ' + (e instanceof SyntaxError ? 'Die Datei ist keine Buch-Datei.' : e.message));
     }
   },
 };
@@ -977,9 +1337,15 @@ const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 4
 
 document.addEventListener('input', e => {
   const t = e.target;
-  if (t.dataset.field && view.name === 'list-edit') {
+  if ((t.dataset.field || t.dataset.exfield) && view.name === 'list-edit') {
     const w = S.getList(view.id)?.words.find(x => x.id === t.closest('[data-wid]').dataset.wid);
-    if (w) { w[t.dataset.field] = t.value; saveSoon(); }
+    if (!w) return;
+    if (t.dataset.field) w[t.dataset.field] = t.value;
+    else {
+      w.ex ??= { fx: '', de: '', box: 0, due: 0, seen: false, right: 0, wrong: 0 };
+      w.ex[t.dataset.exfield] = t.value;
+    }
+    saveSoon();
   } else if (t.dataset.listField && view.name === 'list-edit') {
     S.getList(view.id)[t.dataset.listField] = t.value;
     saveSoon();

@@ -41,11 +41,15 @@ export function prepareImage(file, maxSide = 1600) {
 
 const SYSTEM = `Du liest Vokabeln aus Fotos von Schulbuchseiten (Englisch oder Französisch für deutschsprachige Schulkinder).
 Übertrage jede Vokabel als Paar aus Fremdwort ("fx") und deutscher Bedeutung ("de").
-- Lautschrift weglassen. Beispielsätze nur übernehmen, wenn sie die einzige Übersetzung sind.
+- Lautschrift weglassen.
 - Französische Nomen mit Artikel (le/la/l'/les), bei l'/les das Geschlecht als Notiz, z. B. "m." oder "f.".
 - Englische Verben so wie im Buch (meist mit "to").
 - Mehrere deutsche Bedeutungen mit Komma trennen.
-- Kurze Zusatzinfos (Plural, unregelmäßige Formen, "AE/BE") kommen in "note", sonst leerer Text.
+- Kurze Zusatzinfos (Plural, unregelmäßige Formen, "AE/BE", "fam.") kommen in "note", sonst leerer Text.
+- Steht neben einer Vokabel ein Beispielsatz in der Fremdsprache, kommt er in "example" und seine deutsche Übersetzung in "example_de".
+  Markiere im Beispielsatz die Form der Vokabel mit Sternchen, z. B. "Je *cherche* le casque." Sonst beide leer.
+- Deutsche Erklärungen, Aussprache-Hinweise und Vergleiche mit anderen Sprachen (z. B. "Spanisch: …") weglassen.
+- Blau gedruckte Zusatzwörter, die laut Buch nicht gelernt werden müssen, und Wiederholungskästen weglassen.
 - Wörter, die über einen Seitenrand oder ein Foto hinweg abgeschnitten sind, nur übernehmen, wenn sie eindeutig lesbar sind.
 - Reihenfolge wie im Buch. Keine Vokabeln erfinden.
 "title" ist die Überschrift der Lektion/Unit, falls sichtbar (z. B. "Unit 3 – Station 1"), sonst leer.`;
@@ -59,8 +63,11 @@ const SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { fx: { type: 'string' }, de: { type: 'string' }, note: { type: 'string' } },
-        required: ['fx', 'de', 'note'],
+        properties: {
+          fx: { type: 'string' }, de: { type: 'string' }, note: { type: 'string' },
+          example: { type: 'string' }, example_de: { type: 'string' },
+        },
+        required: ['fx', 'de', 'note', 'example', 'example_de'],
         additionalProperties: false,
       },
     },

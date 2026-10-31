@@ -1,6 +1,6 @@
-// Service Worker: Die App funktioniert so auch ohne Internet (außer dem Foto-Import).
-// Nach Änderungen an der App die Versionsnummer erhöhen, damit Geräte die neue Version laden.
-const CACHE = 'vokabeltrainer-v2';
+// Service Worker: Die App funktioniert so auch ohne Internet (auÃŸer dem Foto-Import).
+// Nach Ã„nderungen an der App die Versionsnummer erhÃ¶hen, damit GerÃ¤te die neue Version laden.
+const CACHE = 'vokabeltrainer-v3';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/app.js', 'js/store.js', 'js/srs.js', 'js/scan.js',
@@ -23,7 +23,7 @@ self.addEventListener('fetch', e => {
   const isOwn = url.origin === location.origin;
   if (!isOwn && url.hostname !== 'cdn.jsdelivr.net') return;
   if (isOwn) {
-    // Eigene Dateien: erst Netz (für Updates), sonst Cache.
+    // Eigene Dateien: erst Netz (fÃ¼r Updates), sonst Cache.
     e.respondWith(fetch(e.request).then(res => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy));

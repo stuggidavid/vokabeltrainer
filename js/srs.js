@@ -65,8 +65,34 @@ const clean = s => s.toLowerCase().normalize('NFC')
 const noAccents = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
 const noArticle = (s, lang) => (ARTICLES[lang] ? s.replace(ARTICLES[lang], '') : s).trim();
 
+// Platzhalter wie „jdn./etw.“ oder „qn/qc“ muss niemand mittippen.
+const PLACEHOLDER = /(^|\s)(jdn|jdm|jds|etw)\.(\/(jdn|jdm|jds|etw)\.)?|(^|\s)q[nc](\/q[nc])?(?=\s|$)/gi;
+// „(an)kommen“ → auch „ankommen“, „(Schul-)Hof“ → auch „Schulhof“
+const inlineParens = s => s.replace(/-\)/g, '').replace(/[()]/g, '');
+
+// „un ami/une amie“ → „un ami“ oder „une amie“; „il/elle/on chante“ → „il chante“, „elle chante“ …
+function slashVariants(part) {
+  if (!part.includes('/')) return [part];
+  const pieces = part.split('/');
+  const words = p => p.trim().split(/\s+/).length;
+  if (pieces.every(p => words(p) === words(pieces[0]))) return pieces;
+  let out = [''];
+  for (const tok of part.trim().split(/\s+/)) {
+    out = out.flatMap(pre => tok.split('/').map(o => `${pre} ${o}`)).slice(0, 24);
+  }
+  return out;
+}
+
 export function alternatives(expected) {
-  return expected.split(/[,;/]/).map(clean).filter(Boolean);
+  const out = new Set();
+  for (const part of expected.replace(PLACEHOLDER, ' ').split(/[,;]/)) {
+    for (const v of slashVariants(part)) {
+      out.add(clean(v));
+      out.add(clean(inlineParens(v)));
+    }
+  }
+  out.delete('');
+  return [...out];
 }
 
 function levenshtein(a, b) {
@@ -94,8 +120,46 @@ export function checkAnswer(input, expected, lang) {
   return { ok: false, hint: null, close };
 }
 
+// ---------- Beispielsätze ----------
+// Die Lücke ist im Satz mit Sternchen markiert: „Je *cherche* le casque.“
+// Ohne Sternchen wird das Wort selbst im Satz gesucht (z. B. bei eigenen Listen).
+export function sentenceParts(ex, word, lang) {
+  const m = ex.fx.match(/^(.*?)\*(.+?)\*(.*)$/s);
+  if (m) return { before: m[1], gap: m[2], after: m[3], plain: m[1] + m[2] + m[3] };
+  const plain = ex.fx.replace(/\*/g, '');
+  const key = noArticle(clean(word?.fx || '').replace(PLACEHOLDER, ' ').split(/[,;/]/)[0] || '', lang).trim();
+  const lower = plain.toLowerCase();
+  let i = key.length >= 2 ? lower.indexOf(key) : -1, len = key.length;
+  // Gebeugte Form finden: „chercher“ → „cherche“, „to play“ → „plays“
+  if (i < 0 && !key.includes(' ') && key.length >= 5) {
+    const m = lower.match(new RegExp(`(^|[^\\p{L}])(${key.slice(0, -2).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\p{L}*)`, 'u'));
+    if (m) { i = m.index + m[1].length; len = m[2].length; }
+  }
+  if (i < 0) return { before: plain, gap: '', after: '', plain };
+  return { before: plain.slice(0, i), gap: plain.slice(i, i + len), after: plain.slice(i + len), plain };
+}
+
+// Satz in Puzzle-Kärtchen zerlegen. Satzzeichen hängen am Wort davor (?, !) bzw. danach (–, «).
+export function sentenceTokens(plain) {
+  const out = [];
+  let pre = '';
+  for (const t of plain.trim().split(/\s+/)) {
+    if (/^[?!:;»]+$/.test(t) && out.length) out[out.length - 1] += ' ' + t;
+    else if (/^[«–—-]$/.test(t)) pre += t + ' ';
+    else { out.push(pre + t); pre = ''; }
+  }
+  return out;
+}
+
+// Für die Sätze-Runde taugt ein Satz, wenn er eine Lücke hat oder mindestens 3 Puzzle-Teile.
+export function sentenceModes(ex, word, lang) {
+  const parts = sentenceParts(ex, word, lang);
+  const n = sentenceTokens(parts.plain).length;
+  return [...(parts.gap ? ['gap'] : []), ...(n >= 3 && n <= 12 ? ['puzzle'] : [])];
+}
+
 // ---------- Punkte, Level, Serie ----------
-export const XP = { type: 10, choice: 5, retry: 3, finish: 20, perfect: 20, review: 1 };
+export const XP = { type: 10, choice: 5, gap: 10, puzzle: 8, retry: 3, finish: 20, perfect: 20, review: 1 };
 
 // Für Level L braucht man insgesamt 50·L·(L−1) Punkte.
 export const levelOf = xp => Math.floor((1 + Math.sqrt(1 + xp / 12.5)) / 2);

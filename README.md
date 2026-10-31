@@ -11,6 +11,8 @@ Eine Web-App für iPad und iPhone zum Vokabellernen (Englisch und Französisch).
   - **Multiple-Choice:** bringt Wörter höchstens bis Fach 2 (5 Punkte)
   - **Eintippen:** bringt Wörter bis Fach 5 (10 Punkte), nur so werden sie „gut gelernt“
 - **🃏 Schnell durchgehen:** Karteikarten aus frei wählbaren Listen umdrehen und selbst bewerten. Wörter steigen dadurch nicht auf. „Wusste ich nicht“ macht ein Wort sofort fällig, und am Ende lassen sich die unsicheren Wörter direkt üben (1 Punkt pro Wort).
+- **Bücher:** Eine Buch-Datei (`.json`) bringt den Vokabelteil eines Schulbuchs mit, gegliedert in Unités und Abschnitte (A1, B2 … mit Seitenzahl). Sonderkästen wie „Auf einen Blick“, Konjugationen und Wortfamilien sind eigene ★-Abschnitte. Im Buch kreuzt man an, was geübt wird. Buch-Dateien liegen im Ordner `buecher/` und kommen wegen des Urheberrechts nicht ins öffentliche Repository. Eine neue Version derselben Datei aktualisiert das Buch, der Lernstand bleibt erhalten.
+- **✍️ Sätze üben:** Beispielsätze aus dem Buch als Lückensatz (fehlendes Wort in der richtigen Form eintippen) oder als Satz-Puzzle (Kärtchen in die richtige Reihenfolge bringen). Sätze haben einen eigenen Karteikasten. Nach jeder Vokabel zeigt die App den Beispielsatz und liest ihn vor.
 - **Nachsichtige Prüfung:** Groß-/Kleinschreibung, „to“ und deutsche Artikel sind egal. Fehlende französische Akzente oder Artikel zählen als richtig, die App zeigt aber einen Hinweis. Mehrere Bedeutungen („sich erinnern, behalten“) werden alle akzeptiert.
 - **Vorlesen** der Fremdwörter (Sprachausgabe des Geräts)
 - **Foto-Import:** Die App liest Vokabelseiten aus dem Schulbuch mit der Claude API aus. Das Ergebnis lässt sich vor dem Speichern prüfen und korrigieren.
